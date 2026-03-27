@@ -1,8 +1,5 @@
 import express from "express";
-import multer from "multer";
 import cors from "cors";
-import fs from "fs";
-import path from "path";
 import dotenv from "dotenv";
 import OpenAI from "openai";
 
@@ -11,16 +8,7 @@ dotenv.config();
 const app = express();
 app.use(cors());
 app.use(express.json());
-
-const uploadDir = path.join(process.cwd(), "uploads");
-fs.mkdirSync(uploadDir, { recursive: true });
-
-const upload = multer({
-  dest: uploadDir,
-  limits: {
-    fileSize: 20 * 1024 * 1024
-  }
-});
+app.use(express.urlencoded({ extended: true }));
 
 const client = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY
@@ -30,24 +18,16 @@ app.get("/", (_req, res) => {
   res.json({ ok: true, service: "invoice-parser-endpoint" });
 });
 
-app.post("/parse-invoice", upload.single("file"), async (req, res) => {
-  let localPath = null;
-
+app.post("/parse-invoice", async (req, res) => {
   try {
     const vendor = (req.body.vendor || "").trim();
+    const fileUrl = (req.body.file_url || req.body.file || "").trim();
 
-    if (!req.file) {
+    if (!fileUrl) {
       return res.status(400).json({
-        error: "Missing file. Send multipart/form-data with field name 'file'."
+        error: "Missing file_url. Send form data with vendor and file_url."
       });
     }
-
-    localPath = req.file.path;
-
-    const uploaded = await client.files.create({
-      file: fs.createReadStream(localPath),
-      purpose: "user_data"
-    });
 
     const response = await client.responses.create({
       model: process.env.MODEL || "gpt-5.4-mini",
@@ -67,7 +47,7 @@ app.post("/parse-invoice", upload.single("file"), async (req, res) => {
             },
             {
               type: "input_file",
-              file_id: uploaded.id
+              file_url: fileUrl
             }
           ]
         }
@@ -109,10 +89,6 @@ app.post("/parse-invoice", upload.single("file"), async (req, res) => {
       error: "Failed to parse invoice",
       details: error?.message || "Unknown error"
     });
-  } finally {
-    if (localPath && fs.existsSync(localPath)) {
-      fs.unlinkSync(localPath);
-    }
   }
 });
 
