@@ -38,24 +38,23 @@ app.post("/parse-invoice", async (req, res) => {
             {
               type: "input_text",
               text:
-                text:
-  `Extract invoice data from this PDF.
-   Return only the schema fields.
-   Vendor: ${vendor || "Unknown"}.
-   If a field is not present, return an empty string.
-   Normalize dates to YYYY-MM-DD if possible.
-   Return total_amount as a plain number string without currency symbol or commas.
+                `Extract invoice data from this PDF.
+                 Return only the schema fields.
+                 Vendor: ${vendor || "Unknown"}.
+                 If a field is not present, return an empty string.
+                 Normalize dates to YYYY-MM-DD if possible.
+                 Return total_amount as a plain number string without currency symbol or commas.
 
-   Very important rules for po_number:
-   - po_number MUST come only from the field labeled "Customer Order No" or "Customer Order Number".
-   - NEVER use "Customer Fed ID" for po_number.
-   - NEVER use "Federal Tax Number" for po_number.
-   - NEVER use "Customer No." for po_number.
-   - NEVER use "Store No." for po_number.
-   - If "Customer Order No" is blank or missing, return an empty string for po_number.
-   - Do not guess.
+                 Very important rules for po_number:
+                 - po_number MUST come only from the field labeled "Customer Order No" or "Customer Order Number".
+                 - NEVER use "Customer Fed ID" for po_number.
+                 - NEVER use "Federal Tax Number" for po_number.
+                 - NEVER use "Customer No." for po_number.
+                 - NEVER use "Store No." for po_number.
+                 - If "Customer Order No" is blank or missing, return an empty string for po_number.
+                 - Do not guess.
 
-   Return only the schema fields.`
+                 Return only the schema fields.`
             },
             {
               type: "input_file",
