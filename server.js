@@ -20,8 +20,8 @@ app.get("/", (_req, res) => {
 
 app.post("/parse-invoice", async (req, res) => {
   try {
-    const vendor = (req.body.vendor || "").trim();
-    const fileUrl = (req.body.file_url || req.body.file || "").trim();
+    const vendor = String(req.body.vendor || "").trim();
+    const fileUrl = String(req.body.file_url || req.body.file || "").trim();
 
     if (!fileUrl) {
       return res.status(400).json({
@@ -37,24 +37,25 @@ app.post("/parse-invoice", async (req, res) => {
           content: [
             {
               type: "input_text",
-              text:
-                `Extract invoice data from this PDF.
-                 Return only the schema fields.
-                 Vendor: ${vendor || "Unknown"}.
-                 If a field is not present, return an empty string.
-                 Normalize dates to YYYY-MM-DD if possible.
-                 Return total_amount as a plain number string without currency symbol or commas.
+              text: `Extract invoice data from this PDF.
 
-                 Very important rules for po_number:
-                 - po_number MUST come only from the field labeled "Customer Order No" or "Customer Order Number".
-                 - NEVER use "Customer Fed ID" for po_number.
-                 - NEVER use "Federal Tax Number" for po_number.
-                 - NEVER use "Customer No." for po_number.
-                 - NEVER use "Store No." for po_number.
-                 - If "Customer Order No" is blank or missing, return an empty string for po_number.
-                 - Do not guess.
+Return ONLY the schema fields.
 
-                 Return only the schema fields.`
+Important rules:
+- "customer_order_no" MUST come only from the field labeled "CUSTOMER ORDER NO." or "CUSTOMER ORDER NO".
+- Copy the text exactly from that field.
+- NEVER use "CUSTOMER FED ID".
+- NEVER use "FEDERAL TAX NUMBER".
+- NEVER use "CUSTOMER NO.".
+- NEVER use "STORE NO.".
+- If CUSTOMER ORDER NO is blank or unreadable, return an empty string.
+- Do not guess.
+
+Other rules:
+- Vendor: ${vendor || "Unknown"}
+- If a field is not present, return an empty string.
+- Normalize dates to YYYY-MM-DD if possible.
+- Return total_amount as a plain number string without currency symbols or commas.`
             },
             {
               type: "input_file",
@@ -73,7 +74,7 @@ app.post("/parse-invoice", async (req, res) => {
             additionalProperties: false,
             properties: {
               invoice_number: { type: "string" },
-              po_number: { type: "string" },
+              customer_order_no: { type: "string" },
               invoice_date: { type: "string" },
               due_date: { type: "string" },
               total_amount: { type: "string" },
@@ -81,7 +82,7 @@ app.post("/parse-invoice", async (req, res) => {
             },
             required: [
               "invoice_number",
-              "po_number",
+              "customer_order_no",
               "invoice_date",
               "due_date",
               "total_amount",
@@ -93,10 +94,10 @@ app.post("/parse-invoice", async (req, res) => {
     });
 
     const parsed = JSON.parse(response.output_text);
-    res.json(parsed);
+    return res.json(parsed);
   } catch (error) {
     console.error("parse-invoice error:", error);
-    res.status(500).json({
+    return res.status(500).json({
       error: "Failed to parse invoice",
       details: error?.message || "Unknown error"
     });
