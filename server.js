@@ -19,6 +19,47 @@ app.get("/", (_req, res) => {
   res.json({ ok: true, service: "invoice-parser-endpoint" });
 });
 
+function detectFileType(buffer) {
+  // PDF: %PDF-
+  if (
+    buffer.length >= 5 &&
+    buffer[0] === 0x25 &&
+    buffer[1] === 0x50 &&
+    buffer[2] === 0x44 &&
+    buffer[3] === 0x46 &&
+    buffer[4] === 0x2d
+  ) {
+    return { kind: "pdf", mime: "application/pdf", ext: "pdf" };
+  }
+
+  // PNG
+  if (
+    buffer.length >= 8 &&
+    buffer[0] === 0x89 &&
+    buffer[1] === 0x50 &&
+    buffer[2] === 0x4e &&
+    buffer[3] === 0x47 &&
+    buffer[4] === 0x0d &&
+    buffer[5] === 0x0a &&
+    buffer[6] === 0x1a &&
+    buffer[7] === 0x0a
+  ) {
+    return { kind: "image", mime: "image/png", ext: "png" };
+  }
+
+  // JPEG
+  if (
+    buffer.length >= 3 &&
+    buffer[0] === 0xff &&
+    buffer[1] === 0xd8 &&
+    buffer[2] === 0xff
+  ) {
+    return { kind: "image", mime: "image/jpeg", ext: "jpg" };
+  }
+
+  return { kind: "unknown", mime: "application/octet-stream", ext: "bin" };
+}
+
 app.post("/parse-invoice", async (req, res) => {
   try {
     const vendor = String(req.body.vendor || "").trim();
@@ -33,7 +74,7 @@ app.post("/parse-invoice", async (req, res) => {
     const fileResponse = await fetch(fileUrl, {
       headers: {
         "User-Agent": "Mozilla/5.0",
-        "Accept": "application/pdf"
+        "Accept": "*/*"
       }
     });
 
@@ -42,27 +83,19 @@ app.post("/parse-invoice", async (req, res) => {
     }
 
     const fileBuffer = Buffer.from(await fileResponse.arrayBuffer());
-
     console.log("Downloaded file size:", fileBuffer.length);
 
-    if (fileBuffer.length < 1000) {
-      throw new Error("Downloaded file is too small — likely not a valid PDF");
+    if (fileBuffer.length < 500) {
+      throw new Error("Downloaded file is too small — likely not a valid invoice file");
     }
 
-    const uploadedFile = await client.files.create({
-      file: await toFile(fileBuffer, "invoice.pdf", { type: "application/pdf" }),
-      purpose: "user_data"
-    });
+    const detected = detectFileType(fileBuffer);
+    console.log("Detected file type:", detected);
 
-    const response = await client.responses.create({
-      model: process.env.MODEL || "gpt-5.4-mini",
-      input: [
-        {
-          role: "user",
-          content: [
-            {
-              type: "input_text",
-              text: `Extract invoice data from this PDF.
+    let contentItems = [
+      {
+        type: "input_text",
+        text: `Extract invoice data from this invoice.
 
 Return ONLY the schema fields.
 
@@ -81,12 +114,37 @@ Other rules:
 - If a field is not present, return an empty string.
 - Normalize dates to YYYY-MM-DD if possible.
 - Return total_amount as a plain number string without currency symbols or commas.`
-            },
-            {
-              type: "input_file",
-              file_id: uploadedFile.id
-            }
-          ]
+      }
+    ];
+
+    if (detected.kind === "pdf") {
+      const uploadedFile = await client.files.create({
+        file: await toFile(fileBuffer, `invoice.${detected.ext}`, { type: detected.mime }),
+        purpose: "user_data"
+      });
+
+      contentItems.push({
+        type: "input_file",
+        file_id: uploadedFile.id
+      });
+    } else if (detected.kind === "image") {
+      const base64 = fileBuffer.toString("base64");
+      const dataUrl = `data:${detected.mime};base64,${base64}`;
+
+      contentItems.push({
+        type: "input_image",
+        image_url: dataUrl
+      });
+    } else {
+      throw new Error(`Unsupported downloaded file type: ${detected.mime}`);
+    }
+
+    const response = await client.responses.create({
+      model: process.env.MODEL || "gpt-5.4-mini",
+      input: [
+        {
+          role: "user",
+          content: contentItems
         }
       ],
       text: {
