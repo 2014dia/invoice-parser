@@ -2,6 +2,7 @@ import express from "express";
 import cors from "cors";
 import dotenv from "dotenv";
 import OpenAI from "openai";
+import { toFile } from "openai/uploads";
 
 dotenv.config();
 
@@ -29,16 +30,21 @@ app.post("/parse-invoice", async (req, res) => {
       });
     }
 
-    // ✅ DOWNLOAD FILE FROM URL (THIS FIXES YOUR ERROR)
+    // Download the file from Zapier/Gmail/Dropbox URL
     const fileResponse = await fetch(fileUrl);
     if (!fileResponse.ok) {
-      throw new Error("Failed to download file");
+      throw new Error(`Failed to download file: ${fileResponse.status} ${fileResponse.statusText}`);
     }
 
     const arrayBuffer = await fileResponse.arrayBuffer();
     const fileBuffer = Buffer.from(arrayBuffer);
 
-    // ✅ SEND REAL FILE TO OPENAI
+    // Upload real file to OpenAI Files API
+    const uploadedFile = await client.files.create({
+      file: await toFile(fileBuffer, "invoice.pdf", { type: "application/pdf" }),
+      purpose: "user_data"
+    });
+
     const response = await client.responses.create({
       model: process.env.MODEL || "gpt-5.4-mini",
       input: [
@@ -69,10 +75,7 @@ Other rules:
             },
             {
               type: "input_file",
-              file: {
-                name: "invoice.pdf",
-                data: fileBuffer
-              }
+              file_id: uploadedFile.id
             }
           ]
         }
@@ -106,11 +109,9 @@ Other rules:
       }
     });
 
-    // 🔍 DEBUG (optional but useful)
     console.log("OpenAI output_text:", response.output_text);
 
     const parsed = JSON.parse(response.output_text);
-
     return res.json(parsed);
   } catch (error) {
     console.error("parse-invoice error full:", error);
