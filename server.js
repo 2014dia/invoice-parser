@@ -30,16 +30,25 @@ app.post("/parse-invoice", async (req, res) => {
       });
     }
 
-    // Download the file from Zapier/Gmail/Dropbox URL
-    const fileResponse = await fetch(fileUrl);
+    const fileResponse = await fetch(fileUrl, {
+      headers: {
+        "User-Agent": "Mozilla/5.0",
+        "Accept": "application/pdf"
+      }
+    });
+
     if (!fileResponse.ok) {
       throw new Error(`Failed to download file: ${fileResponse.status} ${fileResponse.statusText}`);
     }
 
-    const arrayBuffer = await fileResponse.arrayBuffer();
-    const fileBuffer = Buffer.from(arrayBuffer);
+    const fileBuffer = Buffer.from(await fileResponse.arrayBuffer());
 
-    // Upload real file to OpenAI Files API
+    console.log("Downloaded file size:", fileBuffer.length);
+
+    if (fileBuffer.length < 1000) {
+      throw new Error("Downloaded file is too small — likely not a valid PDF");
+    }
+
     const uploadedFile = await client.files.create({
       file: await toFile(fileBuffer, "invoice.pdf", { type: "application/pdf" }),
       purpose: "user_data"
