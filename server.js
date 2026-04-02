@@ -29,6 +29,16 @@ app.post("/parse-invoice", async (req, res) => {
       });
     }
 
+    // ✅ DOWNLOAD FILE FROM URL (THIS FIXES YOUR ERROR)
+    const fileResponse = await fetch(fileUrl);
+    if (!fileResponse.ok) {
+      throw new Error("Failed to download file");
+    }
+
+    const arrayBuffer = await fileResponse.arrayBuffer();
+    const fileBuffer = Buffer.from(arrayBuffer);
+
+    // ✅ SEND REAL FILE TO OPENAI
     const response = await client.responses.create({
       model: process.env.MODEL || "gpt-5.4-mini",
       input: [
@@ -59,7 +69,10 @@ Other rules:
             },
             {
               type: "input_file",
-              file_url: fileUrl
+              file: {
+                name: "invoice.pdf",
+                data: fileBuffer
+              }
             }
           ]
         }
@@ -93,10 +106,15 @@ Other rules:
       }
     });
 
+    // 🔍 DEBUG (optional but useful)
+    console.log("OpenAI output_text:", response.output_text);
+
     const parsed = JSON.parse(response.output_text);
+
     return res.json(parsed);
   } catch (error) {
-    console.error("parse-invoice error:", error);
+    console.error("parse-invoice error full:", error);
+
     return res.status(500).json({
       error: "Failed to parse invoice",
       details: error?.message || "Unknown error"
