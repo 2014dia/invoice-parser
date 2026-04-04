@@ -19,44 +19,6 @@ app.get("/", (_req, res) => {
   res.json({ ok: true, service: "invoice-parser-endpoint" });
 });
 
-function detectFileType(buffer) {
-  if (
-    buffer.length >= 5 &&
-    buffer[0] === 0x25 &&
-    buffer[1] === 0x50 &&
-    buffer[2] === 0x44 &&
-    buffer[3] === 0x46 &&
-    buffer[4] === 0x2d
-  ) {
-    return { kind: "pdf", mime: "application/pdf", ext: "pdf" };
-  }
-
-  if (
-    buffer.length >= 8 &&
-    buffer[0] === 0x89 &&
-    buffer[1] === 0x50 &&
-    buffer[2] === 0x4e &&
-    buffer[3] === 0x47 &&
-    buffer[4] === 0x0d &&
-    buffer[5] === 0x0a &&
-    buffer[6] === 0x1a &&
-    buffer[7] === 0x0a
-  ) {
-    return { kind: "image", mime: "image/png", ext: "png" };
-  }
-
-  if (
-    buffer.length >= 3 &&
-    buffer[0] === 0xff &&
-    buffer[1] === 0xd8 &&
-    buffer[2] === 0xff
-  ) {
-    return { kind: "image", mime: "image/jpeg", ext: "jpg" };
-  }
-
-  return { kind: "unknown", mime: "application/octet-stream", ext: "bin" };
-}
-
 async function processFile(fileUrl) {
   const fileResponse = await fetch(fileUrl, {
     headers: {
@@ -79,7 +41,7 @@ async function processFile(fileUrl) {
 }
 
 /* ===========================
-   RICHELIEU PARSER (EXISTING)
+   RICHELIEU PARSER (FIXED)
    =========================== */
 app.post("/parse-invoice", async (req, res) => {
   try {
@@ -87,27 +49,45 @@ app.post("/parse-invoice", async (req, res) => {
     const fileUrl = String(req.body.file_url || req.body.file || "").trim();
 
     const fileBuffer = await processFile(fileUrl);
-    const detected = detectFileType(fileBuffer);
 
-    let content = [
-      {
-        type: "input_text",
-        text: `Extract invoice data... (your existing prompt unchanged)`
-      }
-    ];
-
-    if (detected.kind === "pdf") {
-      const file = await client.files.create({
-        file: await toFile(fileBuffer, "invoice.pdf"),
-        purpose: "user_data"
-      });
-
-      content.push({ type: "input_file", file_id: file.id });
-    }
+    const file = await client.files.create({
+      file: await toFile(fileBuffer, "invoice.pdf"),
+      purpose: "user_data"
+    });
 
     const response = await client.responses.create({
       model: process.env.MODEL || "gpt-5.4-mini",
-      input: [{ role: "user", content }],
+      input: [
+        {
+          role: "user",
+          content: [
+            {
+              type: "input_text",
+              text: `Extract invoice data from this invoice.
+
+Return ONLY JSON.
+
+Fields:
+- invoice_number
+- customer_order_no
+- invoice_date
+- due_date
+- total_amount
+- vendor
+
+Rules:
+- PO must come from "Customer Order No"
+- Ignore all other IDs
+- Normalize dates YYYY-MM-DD
+- Return numbers without symbols`
+            },
+            {
+              type: "input_file",
+              file_id: file.id
+            }
+          ]
+        }
+      ],
       text: { format: { type: "json_object" } }
     });
 
@@ -115,7 +95,7 @@ app.post("/parse-invoice", async (req, res) => {
     res.json(parsed);
 
   } catch (err) {
-    console.error(err);
+    console.error("richelieu error:", err);
     res.status(500).json({ error: "Failed to parse invoice" });
   }
 });
@@ -146,42 +126,27 @@ app.post("/parse-invoice-lioher", async (req, res) => {
 
 Return ONLY JSON.
 
-Fields:
-- invoice_number
-- invoice_date
-- due_date
-- reference
-- total_amount
-- vendor = "Lioher"
-- items[]
+Header rules:
+- invoice_number MUST come from INVOICE box "N°"
+- NEVER use top-right numbers
+- invoice_date from INVOICE Date
+- due_date from bottom "Due Date"
+- reference from "Your Reference"
+- total_amount from TOTAL DOCUMENT USD
+- vendor = Lioher
 
-ITEM RULES:
-
-Category:
-- PANEL → category = panel
-- EDGE → category = edge
-- LAMINATE → category = laminate
-
-Subcategory:
-- panel syncron / edge syncron
-- panel zenit / edge zenit
-- panel luxe / edge luxe
-- laminate
-
-Quantity:
-- PANEL → take ONLY number before EA
-- LAMINATE → same as panel (EA only)
-- EDGE → take ONLY number before FT
+Item rules:
+- PANEL → quantity from EA
+- EDGE → quantity from FT
+- LAMINATE → same as panel
 
 Examples:
 "2 EA 108.339 FT2" → 2
 "738.000 FT" → 738
 
-Ignore:
-- FT2 values for panel/laminate
-- decimals like .000
+Ignore FT2 values.
 
-Return clean JSON only.`
+Return JSON only.`
             },
             {
               type: "input_file",
