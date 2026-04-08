@@ -76,7 +76,18 @@ Fields:
 - vendor
 
 Rules:
-- PO must come from "Customer Order No"
+Important rules for customer_order_no:
+
+- customer_order_no MUST come ONLY from the field labeled "CUSTOMER ORDER NO".
+- This field is located below the main header section of the invoice.
+- It is typically a short text such as "PTO CLIPS", "V325", "V263", etc.
+- NEVER use the value from "CUSTOMER NO".
+- NEVER use "CUSTOMER FED ID".
+- NEVER use "FEDERAL TAX NUMBER".
+- NEVER use any value from the top row that includes "CUSTOMER NO", "STORE NO", or numeric identifiers.
+- Even if "CUSTOMER NO" appears closer or more prominent, IGNORE it completely.
+- If multiple values are nearby, ALWAYS choose the one directly under "CUSTOMER ORDER NO".
+- If the correct field cannot be clearly read, return an empty string.
 - Ignore all other IDs
 - Normalize dates YYYY-MM-DD
 - Return numbers without symbols`
