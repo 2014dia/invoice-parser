@@ -235,6 +235,87 @@ Return JSON only. No markdown. No explanation.`
   }
 });
 
+app.post("/parse-invoice-synergy", async (req, res) => {
+  try {
+    const fileUrl = String(req.body.file_url || req.body.file || "").trim();
+
+    if (!fileUrl) {
+      return res.status(400).json({
+        error: "Missing file_url. Send form data with file_url."
+      });
+    }
+
+    const fileBuffer = await processFile(fileUrl);
+
+    const file = await client.files.create({
+      file: await toFile(fileBuffer, "synergy.pdf"),
+      purpose: "user_data"
+    });
+
+    const response = await client.responses.create({
+      model: process.env.MODEL || "gpt-5.4-mini",
+      input: [
+        {
+          role: "user",
+          content: [
+            {
+              type: "input_text",
+              text: `Extract invoice data from this Synergy Thermal Foils invoice.
+
+Return ONLY JSON.
+
+Header rules:
+- invoice_number = value next to "Invoice #"
+- invoice_date = value next to "Date"
+- po_number = value under "P.O. Number"
+- total_amount = value next to "Balance Due"
+- vendor = "Synergy"
+
+Line item rules:
+- Read all rows in the item table under the Description / Quantity section.
+- quantity_value = value under the "Quantity" column for each row
+- quantity is always numeric like 1, 2, 3, etc.
+- Ignore U/M, Price Each, and line Amount for total_quantity purposes.
+
+Aggregation rules:
+- total_quantity = sum of all quantity_value values from all rows
+
+Examples:
+- If quantities are 3, 2, 1, 1 then total_quantity = 7
+- If quantity is 1 on a single-row invoice then total_quantity = 1
+
+General rules:
+- Normalize invoice_date to YYYY-MM-DD if possible
+- Return total_amount as a plain number string without currency symbols or commas
+- Return JSON only
+
+Return these exact fields:
+- invoice_number
+- invoice_date
+- po_number
+- total_amount
+- total_quantity
+- vendor`
+            },
+            {
+              type: "input_file",
+              file_id: file.id
+            }
+          ]
+        }
+      ],
+      text: { format: { type: "json_object" } }
+    });
+
+    const parsed = JSON.parse(response.output_text);
+    res.json(parsed);
+
+  } catch (err) {
+    console.error("synergy error:", err);
+    res.status(500).json({ error: "Failed to parse Synergy invoice" });
+  }
+});
+
 const port = process.env.PORT || 3000;
 app.listen(port, () => {
   console.log(`Server running on port ${port}`);
