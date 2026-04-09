@@ -235,6 +235,107 @@ Return JSON only. No markdown. No explanation.`
   }
 });
 
+app.post("/parse-invoice-dixieply", async (req, res) => {
+  try {
+    const fileUrl = String(req.body.file_url || req.body.file || "").trim();
+
+    if (!fileUrl) {
+      return res.status(400).json({
+        error: "Missing file_url. Send form data with file_url."
+      });
+    }
+
+    const fileBuffer = await processFile(fileUrl);
+
+    const file = await client.files.create({
+      file: await toFile(fileBuffer, "dixieply.pdf"),
+      purpose: "user_data"
+    });
+
+    const response = await client.responses.create({
+      model: process.env.MODEL || "gpt-5.4-mini",
+      input: [
+        {
+          role: "user",
+          content: [
+            {
+              type: "input_text",
+              text: `Extract invoice data from this Dixieply invoice.
+
+Return ONLY JSON.
+
+Header rules:
+- invoice_number = value next to "Invoice #"
+- invoice_date = value next to "Invoice Date"
+- po_number = value next to "PO:"
+- ref = value next to "Ref:"
+- ship_date = value next to "Ship Date:"
+- vendor = "Dixieply"
+
+Important PO rules:
+- po_number MUST come from the field labeled "PO:"
+- NEVER use the "Ref:" value as the PO
+- If "PO:" is blank, return an empty string for po_number
+- Examples of valid PO values: "Silberman", "JT Pollo/Odoni"
+
+Total rules:
+- total_amount = the invoice total amount charged, not the Balance
+- Use the amount shown in the invoice totals section (the invoice's total/amount due charged)
+- IGNORE the Balance field for extraction purposes because Balance is often 0.00 for this vendor
+- Return total_amount as a plain number string without currency symbols or commas
+
+Payment rules:
+- payment_tendered_date = the date shown on the "Payment Tendered" line
+- Example: "Payment Tendered 04/06/26 ..." => payment_tendered_date = "04/06/26"
+- Normalize payment_tendered_date to YYYY-MM-DD if possible
+- If not present, return empty string
+
+Quantity rules:
+- Read all item rows in the item table
+- total_quantity = sum of all numeric values under "QTY ORDERED"
+- If QTY ORDERED is missing or unclear, use QTY SHIPPED
+- Quantity is numeric only (example: 3)
+- Ignore UOM, Converted Qty, Price/UOM, and Amount when calculating total_quantity
+
+Examples:
+- If one row has QTY ORDERED = 3, total_quantity = 3
+- If multiple rows have quantities 2, 1, and 4, total_quantity = 7
+
+General rules:
+- Normalize invoice_date and ship_date to YYYY-MM-DD if possible
+- Return JSON only
+- Do not guess if a field cannot be clearly read
+
+Return these exact fields:
+- invoice_number
+- invoice_date
+- po_number
+- ref
+- ship_date
+- payment_tendered_date
+- total_amount
+- total_quantity
+- vendor`
+            },
+            {
+              type: "input_file",
+              file_id: file.id
+            }
+          ]
+        }
+      ],
+      text: { format: { type: "json_object" } }
+    });
+
+    const parsed = JSON.parse(response.output_text);
+    res.json(parsed);
+
+  } catch (err) {
+    console.error("dixieply error:", err);
+    res.status(500).json({ error: "Failed to parse Dixieply invoice" });
+  }
+});
+
 app.post("/parse-invoice-synergy", async (req, res) => {
   try {
     const fileUrl = String(req.body.file_url || req.body.file || "").trim();
