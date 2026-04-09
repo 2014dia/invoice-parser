@@ -264,7 +264,7 @@ app.post("/parse-invoice-dixieply", async (req, res) => {
 
 Return ONLY JSON.
 
-Header rules:
+Field rules:
 - invoice_number = value next to "Invoice #"
 - invoice_date = value next to "Invoice Date"
 - po_number = value next to "PO:"
@@ -273,38 +273,36 @@ Header rules:
 - vendor = "Dixieply"
 
 Important PO rules:
-- po_number MUST come from the field labeled "PO:"
-- NEVER use the "Ref:" value as the PO
-- If "PO:" is blank, return an empty string for po_number
-- Examples of valid PO values: "Silberman", "JT Pollo/Odoni"
+- po_number MUST come ONLY from the field labeled "PO:"
+- NEVER use the value from "Ref:" as the PO
+- NEVER use any other nearby field as the PO
+- If "PO:" is blank, return empty string
 
-Total rules:
-- total_amount = the invoice total amount charged, not the Balance
-- Use the amount shown in the invoice totals section (the invoice's total/amount due charged)
-- IGNORE the Balance field for extraction purposes because Balance is often 0.00 for this vendor
+Important payment_tendered_date rules:
+- payment_tendered_date MUST come ONLY from the text line that starts with "Payment Tendered"
+- Extract the date that appears immediately after the words "Payment Tendered"
+- NEVER use invoice_date, order date, ship_date, or printed date as payment_tendered_date
+- If the date after "Payment Tendered" cannot be clearly read, return empty string
+- Do not guess
+- Return payment_tendered_date exactly as read from that line, then normalize to YYYY-MM-DD only if unambiguous
+
+Important total rules:
+- total_amount = the invoice total charged for the invoice
+- Use the invoice total / amount total from the pricing section
+- IGNORE the Balance field because it may be 0.00 even when the invoice amount is nonzero
 - Return total_amount as a plain number string without currency symbols or commas
-
-Payment rules:
-- payment_tendered_date = the date shown on the "Payment Tendered" line
-- Example: "Payment Tendered 04/06/26 ..." => payment_tendered_date = "04/06/26"
-- Normalize payment_tendered_date to YYYY-MM-DD if possible
-- If not present, return empty string
 
 Quantity rules:
 - Read all item rows in the item table
 - total_quantity = sum of all numeric values under "QTY ORDERED"
-- If QTY ORDERED is missing or unclear, use QTY SHIPPED
-- Quantity is numeric only (example: 3)
+- If QTY ORDERED is missing or unreadable, use QTY SHIPPED
 - Ignore UOM, Converted Qty, Price/UOM, and Amount when calculating total_quantity
-
-Examples:
-- If one row has QTY ORDERED = 3, total_quantity = 3
-- If multiple rows have quantities 2, 1, and 4, total_quantity = 7
+- Do not guess
 
 General rules:
 - Normalize invoice_date and ship_date to YYYY-MM-DD if possible
 - Return JSON only
-- Do not guess if a field cannot be clearly read
+- If any field cannot be clearly read, return empty string for that field
 
 Return these exact fields:
 - invoice_number
